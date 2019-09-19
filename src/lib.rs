@@ -2,9 +2,39 @@ use std::env;
 use std::os::unix::net::UnixDatagram;
 use std::path::Path;
 
-enum State<'a> {
+#[cfg(feature = "async_io")]
+pub mod async_io;
+
+pub struct Message(InnerMessage);
+
+impl Message {
+    /// Tells the init system that daemon startup is finished.
+    pub fn ready() -> Self {
+        Message(InnerMessage::Ready)
+    }
+
+    /// Passes a single-line status string back to the init system that describes the daemon state.
+    pub fn status(status: String) -> Result<Self, std::io::Error> {
+        if status.as_bytes().iter().find(|x| **x == b'\n').is_some() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "newline not allowed",
+            ));
+        }
+        Ok(Message(InnerMessage::Status(status)))
+    }
+
+    /// Tells systemd to update the watchdog timestamp.
+    /// This is the keep-alive ping that services need to issue in regular
+    /// intervals if WatchdogSec= is enabled for it.
+    pub fn ping_watchdog() -> Self {
+        Message(InnerMessage::Watchdog)
+    }
+}
+
+enum InnerMessage {
     Ready,
-    Status(&'a str),
+    Status(String),
     Watchdog,
 }
 
@@ -53,26 +83,26 @@ impl SdNotify {
 
     /// Tells the init system that daemon startup is finished.
     pub fn ready(&self) -> Result<(), std::io::Error> {
-        self.state(State::Ready)
+        self.state(Message::ready())
     }
 
     /// Passes a single-line status string back to the init system that describes the daemon state.
-    pub fn status(&self, status: &str) -> Result<(), std::io::Error> {
-        self.state(State::Status(status))
+    pub fn status(&self, status: String) -> Result<(), std::io::Error> {
+        self.state(Message::status(status)?)
     }
 
     /// Tells systemd to update the watchdog timestamp.
     /// This is the keep-alive ping that services need to issue in regular
     /// intervals if WatchdogSec= is enabled for it.
     pub fn ping_watchdog(&self) -> Result<(), std::io::Error> {
-        self.state(State::Watchdog)
+        self.state(Message::ping_watchdog())
     }
 
-    fn state(&self, state: State<'_>) -> Result<(), std::io::Error> {
-        match state {
-            State::Ready => self.0.send(b"READY=1")?,
-            State::Status(status) => self.0.send(format!("STATUS={}", status).as_bytes())?,
-            State::Watchdog => self.0.send(b"WATCHDOG=1")?,
+    fn state(&self, state: Message) -> Result<(), std::io::Error> {
+        match state.0 {
+            InnerMessage::Ready => self.0.send(b"READY=1")?,
+            InnerMessage::Status(status) => self.0.send(format!("STATUS={}", status).as_bytes())?,
+            InnerMessage::Watchdog => self.0.send(b"WATCHDOG=1")?,
         };
         Ok(())
     }
@@ -84,12 +114,13 @@ mod tests {
     fn ok() {
         use super::*;
 
-        let path = "/tmp/kek.sock";
+        let path = "/tmp/kek-async.sock";
 
-        std::fs::remove_file(path).unwrap();
+        let _ = std::fs::remove_file(path);
+
         let listener = UnixDatagram::bind(path).unwrap();
         let notifier = SdNotify::from_path(path).unwrap();
-        notifier.state(State::Ready).unwrap();
+        notifier.state(Message::ready()).unwrap();
         let mut buf = [0; 100];
         listener.recv(&mut buf).unwrap();
         assert_eq!(&buf[..7], b"READY=1");
