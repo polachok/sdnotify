@@ -9,6 +9,7 @@ use tokio_uds::{UnixDatagram, UnixDatagramFramed};
 use crate::{Error, InnerMessage, Message};
 use bytes::BytesMut;
 
+#[derive(Debug)]
 struct Codec;
 
 impl Encoder for Codec {
@@ -27,6 +28,7 @@ impl Encoder for Codec {
     }
 }
 
+#[derive(Debug)]
 pub struct SdNotify {
     path: PathBuf,
     framed: UnixDatagramFramed<PathBuf, Codec>,

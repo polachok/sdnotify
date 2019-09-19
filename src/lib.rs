@@ -1,3 +1,45 @@
+//! Notify service manager about start-up completion and
+//! other daemon status changes.
+//!
+//! ### Prerequisites
+//!
+//! A unit file with service type `Notify` is required.
+//!
+//! Example:
+//! ```toml
+//! [Unit]
+//! Description=Frobulator
+//! [Service]
+//! Type=notify
+//! ExecStart=/usr/sbin/frobulator
+//! [Install]
+//! WantedBy=multi-user.target
+//! ```
+//! ### Sync API
+//! ```no_run
+//!     use sdnotify::{SdNotify, Message, Error};
+//!
+//! # fn notify() -> Result<(), Error> {
+//!     let notifier = SdNotify::from_env()?;
+//!     notifier.notify_ready()?;
+//! #   Ok(())
+//! # }
+//! ```
+//!
+//! ### Async API
+//! ```no_run
+//!     use sdnotify::{Message, Error, async_io::SdNotify};
+//!     use tokio::prelude::*;
+//!     use tokio::runtime::current_thread::Runtime;
+//!
+//! # fn notify() -> Result<(), Error> {
+//!     let notifier = SdNotify::from_env()?;
+//!     let mut rt = Runtime::new().unwrap();
+//!     rt.block_on(notifier.send(Message::ready())).unwrap();
+//! #   Ok(())
+//! # }
+//! ```
+
 use std::env;
 use std::os::unix::net::UnixDatagram;
 use std::path::Path;
@@ -5,6 +47,8 @@ use std::path::Path;
 #[cfg(feature = "async_io")]
 pub mod async_io;
 
+/// Message to send to init system
+#[derive(Debug)]
 pub struct Message(InnerMessage);
 
 impl Message {
@@ -15,7 +59,7 @@ impl Message {
 
     /// Passes a single-line status string back to the init system that describes the daemon state.
     pub fn status(status: String) -> Result<Self, std::io::Error> {
-        if status.as_bytes().iter().find(|x| **x == b'\n').is_some() {
+        if status.as_bytes().iter().any(|x| *x == b'\n') {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "newline not allowed",
@@ -27,11 +71,12 @@ impl Message {
     /// Tells systemd to update the watchdog timestamp.
     /// This is the keep-alive ping that services need to issue in regular
     /// intervals if WatchdogSec= is enabled for it.
-    pub fn ping_watchdog() -> Self {
+    pub fn watchdog() -> Self {
         Message(InnerMessage::Watchdog)
     }
 }
 
+#[derive(Debug)]
 enum InnerMessage {
     Ready,
     Status(String),
@@ -82,12 +127,12 @@ impl SdNotify {
     }
 
     /// Tells the init system that daemon startup is finished.
-    pub fn ready(&self) -> Result<(), std::io::Error> {
+    pub fn notify_ready(&self) -> Result<(), std::io::Error> {
         self.state(Message::ready())
     }
 
     /// Passes a single-line status string back to the init system that describes the daemon state.
-    pub fn status(&self, status: String) -> Result<(), std::io::Error> {
+    pub fn set_status(&self, status: String) -> Result<(), std::io::Error> {
         self.state(Message::status(status)?)
     }
 
@@ -95,7 +140,7 @@ impl SdNotify {
     /// This is the keep-alive ping that services need to issue in regular
     /// intervals if WatchdogSec= is enabled for it.
     pub fn ping_watchdog(&self) -> Result<(), std::io::Error> {
-        self.state(Message::ping_watchdog())
+        self.state(Message::watchdog())
     }
 
     fn state(&self, state: Message) -> Result<(), std::io::Error> {
