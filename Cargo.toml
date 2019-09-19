@@ -1,6 +1,6 @@
 [package]
 name = "sdnotify"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Alexander Polakov <plhk@sdf.org>"]
 description = "Notify service manager about start-up completion and other daemon status changes"
 license = "MIT"
