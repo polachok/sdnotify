@@ -44,6 +44,8 @@ use std::env;
 use std::os::unix::net::UnixDatagram;
 use std::path::Path;
 
+#[cfg(feature = "async_await")]
+pub mod async_await;
 #[cfg(feature = "async_io")]
 pub mod async_io;
 
