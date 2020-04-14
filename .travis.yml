@@ -1,0 +1,16 @@
+language: rust
+rust:
+  - stable
+  - beta
+  - nightly
+
+
+matrix:
+  include:
+    - name: clippy
+      os: linux
+      install:
+        - rustup component add clippy
+      script:
+        - cargo fmt -- --check
+        - cargo clippy --verbose --all --tests
