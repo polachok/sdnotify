@@ -1,7 +1,7 @@
-use std::path::Path;
+use crate::{Error, InnerMessage, Message};
 use std::env;
+use std::path::Path;
 use tokio2::net::UnixDatagram;
-use crate::{Message, InnerMessage, Error};
 
 #[derive(Debug)]
 pub struct SdNotify {
@@ -17,9 +17,7 @@ impl SdNotify {
     pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
         let socket = UnixDatagram::unbound()?;
         socket.connect(path.as_ref())?;
-        Ok(SdNotify {
-            socket
-        })
+        Ok(SdNotify { socket })
     }
 
     /// Tells the init system that daemon startup is finished.
@@ -42,7 +40,11 @@ impl SdNotify {
     pub async fn state(&mut self, state: Message) -> Result<(), std::io::Error> {
         match state.0 {
             InnerMessage::Ready => self.socket.send(b"READY=1").await?,
-            InnerMessage::Status(status) => self.socket.send(format!("STATUS={}", status).as_bytes()).await?,
+            InnerMessage::Status(status) => {
+                self.socket
+                    .send(format!("STATUS={}", status).as_bytes())
+                    .await?
+            }
             InnerMessage::Watchdog => self.socket.send(b"WATCHDOG=1").await?,
         };
         Ok(())
