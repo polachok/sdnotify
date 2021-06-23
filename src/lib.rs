@@ -42,7 +42,7 @@
 
 use std::env;
 use std::os::unix::net::UnixDatagram;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[cfg(feature = "async_await")]
 pub mod async_await;
@@ -114,7 +114,10 @@ impl From<std::io::Error> for Error {
 
 impl std::error::Error for Error {}
 
-pub struct SdNotify(UnixDatagram);
+pub struct SdNotify {
+    socket: UnixDatagram,
+    path: PathBuf,
+}
 
 impl SdNotify {
     pub fn from_env() -> Result<Self, Error> {
@@ -124,8 +127,8 @@ impl SdNotify {
 
     pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
         let socket = UnixDatagram::unbound()?;
-        socket.connect(path)?;
-        Ok(SdNotify(socket))
+        let path = path.as_ref().to_path_buf();
+        Ok(SdNotify { socket, path })
     }
 
     /// Tells the init system that daemon startup is finished.
@@ -147,9 +150,11 @@ impl SdNotify {
 
     fn state(&self, state: Message) -> Result<(), std::io::Error> {
         match state.0 {
-            InnerMessage::Ready => self.0.send(b"READY=1")?,
-            InnerMessage::Status(status) => self.0.send(format!("STATUS={}", status).as_bytes())?,
-            InnerMessage::Watchdog => self.0.send(b"WATCHDOG=1")?,
+            InnerMessage::Ready => self.socket.send_to(b"READY=1", &self.path)?,
+            InnerMessage::Status(status) => self
+                .socket
+                .send_to(format!("STATUS={}", status).as_bytes(), &self.path)?,
+            InnerMessage::Watchdog => self.socket.send_to(b"WATCHDOG=1", &self.path)?,
         };
         Ok(())
     }
